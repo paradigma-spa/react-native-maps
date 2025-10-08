@@ -213,13 +213,21 @@ public class MapView extends com.google.android.gms.maps.MapView implements Goog
     @Override
     public void onResume(LifecycleOwner owner) {
         if (hasPermissions() && map != null) {
-            //noinspection MissingPermission
-            map.setMyLocationEnabled(showUserLocation);
-            map.setLocationSource(fusedLocationSource);
+            try {
+                //noinspection MissingPermission
+                map.setMyLocationEnabled(showUserLocation);
+                map.setLocationSource(fusedLocationSource);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         synchronized (MapView.this) {
             if (!destroyed) {
-                MapView.this.onResume();
+                try {
+                    MapView.this.onResume();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
             paused = false;
         }
@@ -230,12 +238,19 @@ public class MapView extends com.google.android.gms.maps.MapView implements Goog
     public void onPause(LifecycleOwner owner) {
         super.onPause();
         if (hasPermissions() && map != null) {
-            //noinspection MissingPermission
-            map.setMyLocationEnabled(false);
+            try {
+                map.setMyLocationEnabled(false);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         synchronized (MapView.this) {
             if (!destroyed) {
-                MapView.this.onPause();
+                try {
+                    MapView.this.onPause();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
             paused = true;
         }
@@ -751,10 +766,18 @@ public class MapView extends com.google.android.gms.maps.MapView implements Goog
         savedFeatures = null;
 
         if (!paused) {
-            onPause();
+            try {
+                onPause();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             paused = true;
         }
-        onDestroy();
+        try {
+            onDestroy();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         detachLifecycleObserver();
     }
 
