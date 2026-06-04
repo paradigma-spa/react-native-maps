@@ -1,13 +1,17 @@
 {
-  "name": "react-native-maps",
-  "description": "React Native Mapview component for iOS + Android",
+  "name": "@paradigma-spa/react-native-maps",
+  "description": "React Native Mapview component for iOS + Android (paradigma-spa fork)",
   "react-native": "src/index",
   "source": "src/index",
   "main": "src/index.ts",
   "types": "dist/src/index.d.ts",
   "author": "Leland Richardson <leland.m.richardson@gmail.com>",
-  "homepage": "https://github.com/react-native-maps/react-native-maps#readme",
+  "homepage": "https://github.com/paradigma-spa/react-native-maps#readme",
   "version": "1.27.2",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "license": "MIT",
   "scripts": {
     "lint": "eslint . --max-warnings 0",
