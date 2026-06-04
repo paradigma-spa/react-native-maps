@@ -52,12 +52,15 @@ const NSInteger AIRMapMaxZoomLevel = 20;
 @implementation AIRMap
 {
     UIView *_legalLabel;
+    UIView *_appleLogo;
     BOOL _initialRegionSet;
     BOOL _initialRegionProvided;
     BOOL _initialCameraProvided;
     BOOL _initialCameraSet;
     BOOL _initialized;
     BOOL _loadingStarted;
+    BOOL _showsPointsOfInterests;
+    NSArray<NSString *> *_pointsOfInterestFilter;
 
     // Array to manually track RN subviews
     //
@@ -87,6 +90,14 @@ const NSInteger AIRMapMaxZoomLevel = 20;
             }
         }
 
+        // Find Apple logo (iOS 13+)
+        for (UIView *subview in self.subviews) {
+            if ([NSStringFromClass(subview.class) isEqualToString:@"MKAppleLogoImageView"]) {
+                _appleLogo = subview;
+                break;
+            }
+        }
+
         // 3rd-party callout view for MapKit that has more options than the built-in. It's painstakingly built to
         // be identical to the built-in callout view (which has a private API)
         self.calloutView = [SMCalloutView platformCalloutView];
@@ -97,6 +108,8 @@ const NSInteger AIRMapMaxZoomLevel = 20;
         self.compassOffset = CGPointMake(0, 0);
         self.legacyZoomConstraintsEnabled = YES;
         _initialized = YES;
+        _showsPointsOfInterests = YES;
+        _pointsOfInterestFilter = @[];
         [self listenToMemoryWarnings];
     }
     return self;
@@ -637,6 +650,75 @@ const NSInteger AIRMapMaxZoomLevel = 20;
     }
 }
 
+- (void)setShowsPointsOfInterests:(BOOL)showsPointsOfInterests {
+    _showsPointsOfInterests = showsPointsOfInterests;
+
+    if (!_initialized) {
+        return;
+    }
+
+    if (_pointsOfInterestFilter && _pointsOfInterestFilter.count > 0) {
+        return; // specific filter takes precedence
+    }
+
+    if (@available(iOS 16.0, *)) {
+        MKMapConfiguration *newConfig = [self.preferredConfiguration copy] ?: [[MKStandardMapConfiguration alloc] init];
+        MKPointOfInterestFilter *filter = showsPointsOfInterests
+            ? [MKPointOfInterestFilter filterIncludingAllCategories]
+            : [MKPointOfInterestFilter filterExcludingAllCategories];
+
+        if ([newConfig isKindOfClass:[MKStandardMapConfiguration class]]) {
+            ((MKStandardMapConfiguration *)newConfig).pointOfInterestFilter = filter;
+        } else if ([newConfig isKindOfClass:[MKHybridMapConfiguration class]]) {
+            ((MKHybridMapConfiguration *)newConfig).pointOfInterestFilter = filter;
+        }
+
+        self.preferredConfiguration = newConfig;
+    } else {
+        self.showsPointsOfInterest = showsPointsOfInterests;
+    }
+}
+
+- (void)setPointsOfInterestFilter:(NSArray<NSString *> *)pointsOfInterestFilter {
+    _pointsOfInterestFilter = pointsOfInterestFilter;
+
+    if (!_initialized) {
+        return;
+    }
+
+    // If the filter is nil or empty, fall back to the boolean prop's behavior.
+    if (!pointsOfInterestFilter || pointsOfInterestFilter.count == 0) {
+        [self setShowsPointsOfInterests:_showsPointsOfInterests];
+        return;
+    }
+
+    // --- Convert input strings into valid MKPointOfInterestCategory constants ---
+    NSArray<MKPointOfInterestCategory> *validCategories = [self getCategoriesFromStrings:pointsOfInterestFilter];
+
+    // If no valid categories were found from the input strings, do nothing.
+    if (validCategories.count == 0) {
+        return;
+    }
+
+    MKPointOfInterestFilter *filter =
+        [[MKPointOfInterestFilter alloc] initIncludingCategories:validCategories];
+
+    if (@available(iOS 16.0, *)) {
+        MKMapConfiguration *newConfig =
+            [self.preferredConfiguration copy] ?: [[MKStandardMapConfiguration alloc] init];
+
+        if ([newConfig isKindOfClass:[MKStandardMapConfiguration class]]) {
+            ((MKStandardMapConfiguration *)newConfig).pointOfInterestFilter = filter;
+        } else if ([newConfig isKindOfClass:[MKHybridMapConfiguration class]]) {
+            ((MKHybridMapConfiguration *)newConfig).pointOfInterestFilter = filter;
+        }
+
+        self.preferredConfiguration = newConfig;
+    } else {
+        self.pointOfInterestFilter = filter;
+    }
+}
+
 - (UIColor *)loadingBackgroundColor {
     return self.loadingView.backgroundColor;
 }
@@ -748,6 +830,7 @@ const NSInteger AIRMapMaxZoomLevel = 20;
         [self updateScrollEnabled];
         [self updateZoomEnabled];
         [self updateLegalLabelInsets];
+        [self updateAppleLogoInsets];
     }
 }
 
@@ -803,6 +886,41 @@ const NSInteger AIRMapMaxZoomLevel = 20;
 - (void)setLegalLabelInsets:(UIEdgeInsets)legalLabelInsets {
     _legalLabelInsets = legalLabelInsets;
     [self updateLegalLabelInsets];
+}
+
+- (void)updateAppleLogoInsets {
+    // Search for Apple logo if not found yet (it may be added after init)
+    if (!_appleLogo) {
+        for (UIView *subview in self.subviews) {
+            NSString *className = NSStringFromClass(subview.class);
+            if ([className isEqualToString:@"MKAppleLogoImageView"] ||
+                [className containsString:@"Logo"]) {
+                _appleLogo = subview;
+                break;
+            }
+        }
+    }
+    if (_appleLogo) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGRect frame = self->_appleLogo.frame;
+            if (self->_appleLogoInsets.left) {
+                frame.origin.x = self->_appleLogoInsets.left;
+            } else if (self->_appleLogoInsets.right) {
+                frame.origin.x = self.frame.size.width - self->_appleLogoInsets.right - frame.size.width;
+            }
+            if (self->_appleLogoInsets.top) {
+                frame.origin.y = self->_appleLogoInsets.top;
+            } else if (self->_appleLogoInsets.bottom) {
+                frame.origin.y = self.frame.size.height - self->_appleLogoInsets.bottom - frame.size.height;
+            }
+            self->_appleLogo.frame = frame;
+        });
+    }
+}
+
+- (void)setAppleLogoInsets:(UIEdgeInsets)appleLogoInsets {
+    _appleLogoInsets = appleLogoInsets;
+    [self updateAppleLogoInsets];
 }
 
 - (void)setMapPadding:(UIEdgeInsets)mapPadding {
@@ -899,6 +1017,114 @@ const NSInteger AIRMapMaxZoomLevel = 20;
     int normalizingFactor = 512;
 
     return log2(360 * ((width / normalizingFactor) / spanStraight));
+}
+
+// Helpers
+
+- (NSArray<MKPointOfInterestCategory> *)getCategoriesFromStrings:(NSArray<NSString *> *)stringArray {
+    // Use a static dictionary so it's only created once for efficiency.
+    static NSDictionary<NSString *, MKPointOfInterestCategory> *categoryMap = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSMutableDictionary<NSString *, MKPointOfInterestCategory> *map = [NSMutableDictionary dictionary];
+
+        // --- Categories available since iOS 13.0 ---
+        map[@"airport"] = MKPointOfInterestCategoryAirport;
+        map[@"amusementPark"] = MKPointOfInterestCategoryAmusementPark;
+        map[@"aquarium"] = MKPointOfInterestCategoryAquarium;
+        map[@"atm"] = MKPointOfInterestCategoryATM;
+        map[@"bakery"] = MKPointOfInterestCategoryBakery;
+        map[@"bank"] = MKPointOfInterestCategoryBank;
+        map[@"beach"] = MKPointOfInterestCategoryBeach;
+        map[@"brewery"] = MKPointOfInterestCategoryBrewery;
+        map[@"cafe"] = MKPointOfInterestCategoryCafe;
+        map[@"campground"] = MKPointOfInterestCategoryCampground;
+        map[@"carRental"] = MKPointOfInterestCategoryCarRental;
+        map[@"evCharger"] = MKPointOfInterestCategoryEVCharger;
+        map[@"fireStation"] = MKPointOfInterestCategoryFireStation;
+        map[@"fitnessCenter"] = MKPointOfInterestCategoryFitnessCenter;
+        map[@"foodMarket"] = MKPointOfInterestCategoryFoodMarket;
+        map[@"gasStation"] = MKPointOfInterestCategoryGasStation;
+        map[@"hospital"] = MKPointOfInterestCategoryHospital;
+        map[@"hotel"] = MKPointOfInterestCategoryHotel;
+        map[@"laundry"] = MKPointOfInterestCategoryLaundry;
+        map[@"library"] = MKPointOfInterestCategoryLibrary;
+        map[@"marina"] = MKPointOfInterestCategoryMarina;
+        map[@"movieTheater"] = MKPointOfInterestCategoryMovieTheater;
+        map[@"museum"] = MKPointOfInterestCategoryMuseum;
+        map[@"nationalPark"] = MKPointOfInterestCategoryNationalPark;
+        map[@"nightlife"] = MKPointOfInterestCategoryNightlife;
+        map[@"park"] = MKPointOfInterestCategoryPark;
+        map[@"parking"] = MKPointOfInterestCategoryParking;
+        map[@"pharmacy"] = MKPointOfInterestCategoryPharmacy;
+        map[@"police"] = MKPointOfInterestCategoryPolice;
+        map[@"postOffice"] = MKPointOfInterestCategoryPostOffice;
+        map[@"publicTransport"] = MKPointOfInterestCategoryPublicTransport;
+        map[@"restaurant"] = MKPointOfInterestCategoryRestaurant;
+        map[@"restroom"] = MKPointOfInterestCategoryRestroom;
+        map[@"school"] = MKPointOfInterestCategorySchool;
+        map[@"stadium"] = MKPointOfInterestCategoryStadium;
+        map[@"store"] = MKPointOfInterestCategoryStore;
+        map[@"theater"] = MKPointOfInterestCategoryTheater;
+        map[@"university"] = MKPointOfInterestCategoryUniversity;
+        map[@"winery"] = MKPointOfInterestCategoryWinery;
+        map[@"zoo"] = MKPointOfInterestCategoryZoo;
+
+// Only include if building with iOS 18.0+ SDK (Xcode 16+)
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 180000
+        // --- Categories available since iOS 18.0 ---
+        if (@available(iOS 18.0, *)) {
+            map[@"animalService"] = MKPointOfInterestCategoryAnimalService;
+            map[@"automotiveRepair"] = MKPointOfInterestCategoryAutomotiveRepair;
+            map[@"baseball"] = MKPointOfInterestCategoryBaseball;
+            map[@"basketball"] = MKPointOfInterestCategoryBasketball;
+            map[@"beauty"] = MKPointOfInterestCategoryBeauty;
+            map[@"bowling"] = MKPointOfInterestCategoryBowling;
+            map[@"castle"] = MKPointOfInterestCategoryCastle;
+            map[@"conventionCenter"] = MKPointOfInterestCategoryConventionCenter;
+            map[@"distillery"] = MKPointOfInterestCategoryDistillery;
+            map[@"fairground"] = MKPointOfInterestCategoryFairground;
+            map[@"fishing"] = MKPointOfInterestCategoryFishing;
+
+            map[@"fortress"] = MKPointOfInterestCategoryFortress;
+            map[@"golf"] = MKPointOfInterestCategoryGolf;
+            map[@"goKart"] = MKPointOfInterestCategoryGoKart;
+            map[@"hiking"] = MKPointOfInterestCategoryHiking;
+            map[@"kayaking"] = MKPointOfInterestCategoryKayaking;
+            map[@"landmark"] = MKPointOfInterestCategoryLandmark;
+            map[@"mailbox"] = MKPointOfInterestCategoryMailbox;
+            map[@"miniGolf"] = MKPointOfInterestCategoryMiniGolf;
+            map[@"musicVenue"] = MKPointOfInterestCategoryMusicVenue;
+            map[@"nationalMonument"] = MKPointOfInterestCategoryNationalMonument;
+            map[@"planetarium"] = MKPointOfInterestCategoryPlanetarium;
+            map[@"rockClimbing"] = MKPointOfInterestCategoryRockClimbing;
+            map[@"rvPark"] = MKPointOfInterestCategoryRVPark;
+            map[@"skatePark"] = MKPointOfInterestCategorySkatePark;
+            map[@"skating"] = MKPointOfInterestCategorySkating;
+            map[@"skiing"] = MKPointOfInterestCategorySkiing;
+            map[@"soccer"] = MKPointOfInterestCategorySoccer;
+            map[@"spa"] = MKPointOfInterestCategorySpa;
+            map[@"surfing"] = MKPointOfInterestCategorySurfing;
+            map[@"swimming"] = MKPointOfInterestCategorySwimming;
+            map[@"tennis"] = MKPointOfInterestCategoryTennis;
+            map[@"volleyball"] = MKPointOfInterestCategoryVolleyball;
+        }
+#endif
+        
+        categoryMap = [map copy];
+    });
+
+    NSMutableArray<MKPointOfInterestCategory> *validCategories = [NSMutableArray array];
+    for (NSString *str in stringArray) {
+        // Direct, case-sensitive lookup for camelCase keys
+        MKPointOfInterestCategory category = categoryMap[str];
+        if (category) {
+            [validCategories addObject:category];
+        } else {
+            NSLog(@"[MapView] Warning: Unknown or unavailable point of interest category string '%@'", str);
+        }
+    }
+    return validCategories;
 }
 
 @end
